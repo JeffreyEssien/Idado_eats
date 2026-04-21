@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/_components/ui/button'
 import { Input } from '@/_components/ui/input'
-import { signUp, createProfile } from '@/_lib/auth'
+import { signUpOrSignIn, ensureProfileWithRole, sendWelcomeEmail } from '@/_lib/auth'
 
 export default function RiderRegisterPage() {
   const router = useRouter()
@@ -34,14 +34,15 @@ export default function RiderRegisterPage() {
     }
     setLoading(true)
     try {
-      const user = await signUp(form.email, form.password, form.fullName)
-      await createProfile(user.$id, 'rider', {
+      const { user, isExisting } = await signUpOrSignIn(form.email, form.password, form.fullName)
+      await ensureProfileWithRole(user.$id, 'rider', {
         fullName: form.fullName,
         email: form.email,
         phone: form.phone,
         address: form.address,
         vehicleType: form.vehicleType,
       })
+      if (!isExisting) sendWelcomeEmail(form.fullName, form.email, 'rider')
       router.push('/deliveries')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed'

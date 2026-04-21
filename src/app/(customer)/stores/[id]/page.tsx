@@ -2,10 +2,13 @@
 
 import { useState, useEffect, use } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { formatPrice } from '@/_lib/mock-data'
 import type { Store, Product } from '@/_lib/mock-data'
 import { Button } from '@/_components/ui/button'
 import { getStore, listProducts } from '@/_lib/db'
+import { useCart } from '@/_components/providers/cart-provider'
+import { useAuth } from '@/_components/providers/auth-provider'
 
 const typeBg: Record<string, string> = {
   restaurant: 'from-orange-100 to-red-50 dark:from-orange-950/30 dark:to-red-950/15',
@@ -16,12 +19,15 @@ const typeEmoji: Record<string, string> = { restaurant: '🍽️', mart: '🛒',
 
 export default function StoreDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const router = useRouter()
+  const { user } = useAuth()
+  const { addItem, removeItem, getQuantity, totalItems, totalPrice } = useCart()
   const [store, setStore] = useState<Store | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
-  const [cart, setCart] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [showAuthPrompt, setShowAuthPrompt] = useState(false)
 
   useEffect(() => {
     Promise.all([getStore(id), listProducts(id)])
@@ -48,19 +54,12 @@ export default function StoreDetailPage({ params }: { params: Promise<{ id: stri
   const categories = [...new Set(products.map((p) => p.category))]
   const filteredProducts = activeCategory ? products.filter((p) => p.category === activeCategory) : products
 
-  const cartCount = Object.values(cart).reduce((a, b) => a + b, 0)
-  const cartTotal = Object.entries(cart).reduce((sum, [pid, qty]) => {
-    const p = products.find((x) => x.$id === pid)
-    return sum + (p ? p.price * qty : 0)
-  }, 0)
-
-  function add(pid: string) { setCart((c) => ({ ...c, [pid]: (c[pid] || 0) + 1 })) }
-  function remove(pid: string) {
-    setCart((c) => {
-      const n = { ...c }
-      if (n[pid] > 1) n[pid]--; else delete n[pid]
-      return n
-    })
+  function handleAdd(product: Product) {
+    if (!user) {
+      setShowAuthPrompt(true)
+      return
+    }
+    addItem(product, store!.$id, store!.name)
   }
 
   return (
@@ -123,47 +122,68 @@ export default function StoreDetailPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {filteredProducts.map((product) => (
-          <div
-            key={product.$id}
-            className={`group flex items-center gap-4 rounded-3xl border border-border bg-card p-4 transition-all duration-200 ${product.inStock ? 'hover:bg-surface hover:shadow-md hover:shadow-black/[0.03] hover:-translate-y-0.5' : 'opacity-40'}`}
-          >
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface text-2xl transition-transform duration-200 group-hover:scale-105">
-              {typeEmoji[store.type]}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-[13px] truncate">{product.name}</p>
-              <p className="text-[11px] text-muted-foreground truncate">{product.description}</p>
-              <p className="mt-1.5 text-sm font-extrabold text-primary">{formatPrice(product.price)}</p>
-            </div>
-            {product.inStock && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                {cart[product.$id] ? (
-                  <>
-                    <button onClick={() => remove(product.$id)} className="h-8 w-8 rounded-full border border-border flex items-center justify-center text-sm font-bold hover:bg-surface transition-colors">−</button>
-                    <span className="w-6 text-center text-sm font-extrabold">{cart[product.$id]}</span>
-                    <button onClick={() => add(product.$id)} className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold hover:bg-primary-dark transition-all hover:scale-105">+</button>
-                  </>
-                ) : (
-                  <button onClick={() => add(product.$id)} className="h-9 w-9 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold hover:bg-primary-dark hover:scale-110 transition-all shadow-md shadow-primary/20">+</button>
-                )}
+        {filteredProducts.map((product) => {
+          const qty = getQuantity(product.$id)
+          return (
+            <div
+              key={product.$id}
+              className={`group flex items-center gap-4 rounded-3xl border border-border bg-card p-4 transition-all duration-200 ${product.inStock ? 'hover:bg-surface hover:shadow-md hover:shadow-black/[0.03] hover:-translate-y-0.5' : 'opacity-40'}`}
+            >
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface text-2xl transition-transform duration-200 group-hover:scale-105">
+                {typeEmoji[store.type]}
               </div>
-            )}
-          </div>
-        ))}
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-[13px] truncate">{product.name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{product.description}</p>
+                <p className="mt-1.5 text-sm font-extrabold text-primary">{formatPrice(product.price)}</p>
+              </div>
+              {product.inStock && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {qty > 0 ? (
+                    <>
+                      <button onClick={() => removeItem(product.$id)} className="h-8 w-8 rounded-full border border-border flex items-center justify-center text-sm font-bold hover:bg-surface transition-colors">−</button>
+                      <span className="w-6 text-center text-sm font-extrabold">{qty}</span>
+                      <button onClick={() => handleAdd(product)} className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold hover:bg-primary-dark transition-all hover:scale-105">+</button>
+                    </>
+                  ) : (
+                    <button onClick={() => handleAdd(product)} className="h-9 w-9 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold hover:bg-primary-dark hover:scale-110 transition-all shadow-md shadow-primary/20">+</button>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
-      {cartCount > 0 && (
+      {/* Auth prompt modal */}
+      {showAuthPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-6">
+          <div className="bg-card rounded-3xl border border-border p-8 max-w-sm w-full text-center shadow-2xl">
+            <p className="text-4xl">🔒</p>
+            <h2 className="mt-4 text-xl font-extrabold">Sign in to order</h2>
+            <p className="mt-2 text-sm text-muted-foreground">You need an account to add items to your cart and place orders.</p>
+            <div className="mt-6 flex flex-col gap-3">
+              <Button onClick={() => router.push('/register')} className="w-full">Create Account</Button>
+              <Button onClick={() => router.push('/login')} variant="outline" className="w-full">Sign In</Button>
+              <button onClick={() => setShowAuthPrompt(false)} className="text-sm text-muted-foreground hover:text-foreground transition-colors mt-1">
+                Just browsing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {totalItems > 0 && (
         <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 sm:left-auto sm:right-6 z-40 sm:w-[360px]">
           <Link
             href="/cart"
             className="flex items-center justify-between rounded-full bg-secondary text-white px-6 py-4 shadow-2xl shadow-black/30 hover:bg-secondary-dark transition-all duration-200 hover:scale-[1.02]"
           >
             <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-extrabold">{cartCount}</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-extrabold">{totalItems}</span>
               <span className="font-bold text-[15px]">View cart</span>
             </div>
-            <span className="font-extrabold text-[15px]">{formatPrice(cartTotal)}</span>
+            <span className="font-extrabold text-[15px]">{formatPrice(totalPrice)}</span>
           </Link>
         </div>
       )}

@@ -7,7 +7,8 @@ import { Button } from '@/_components/ui/button'
 import { Input } from '@/_components/ui/input'
 import { Select } from '@/_components/ui/select'
 import { Textarea } from '@/_components/ui/textarea'
-import { signUp, createProfile } from '@/_lib/auth'
+import { signUpOrSignIn, ensureProfileWithRole, sendWelcomeEmail } from '@/_lib/auth'
+import { listStoresByOwner, createStore } from '@/_lib/db'
 
 export default function BusinessRegisterPage() {
   const router = useRouter()
@@ -38,8 +39,8 @@ export default function BusinessRegisterPage() {
     }
     setLoading(true)
     try {
-      const user = await signUp(form.email, form.password, form.ownerName)
-      await createProfile(user.$id, 'business', {
+      const { user, isExisting } = await signUpOrSignIn(form.email, form.password, form.ownerName)
+      await ensureProfileWithRole(user.$id, 'business', {
         fullName: form.ownerName,
         email: form.email,
         phone: form.phone,
@@ -48,6 +49,21 @@ export default function BusinessRegisterPage() {
         description: form.description,
         address: form.address,
       })
+      // Create store if one doesn't exist yet
+      const existing = await listStoresByOwner(user.$id)
+      if (existing.length === 0) {
+        await createStore({
+          name: form.businessName,
+          type: form.businessType as 'restaurant' | 'store' | 'mart',
+          description: form.description,
+          image: '',
+          rating: 0,
+          deliveryTime: '15-30 min',
+          isOpen: false,
+          ownerId: user.$id,
+        })
+      }
+      if (!isExisting) sendWelcomeEmail(form.ownerName, form.email, 'business')
       router.push('/dashboard')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed'

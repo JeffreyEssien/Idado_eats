@@ -8,6 +8,9 @@ export type Store = {
   deliveryTime: string
   isOpen: boolean
   ownerId: string
+  address?: string
+  latitude?: number
+  longitude?: number
 }
 
 export type Product = {
@@ -35,6 +38,7 @@ export type Order = {
   storeName: string
   items: string // JSON stringified
   total: number
+  deliveryFee: number
   status: OrderStatus
   paymentMethod: 'cash' | 'transfer'
   $createdAt: string
@@ -56,6 +60,33 @@ export type Delivery = {
   status: 'available' | 'picked_up' | 'delivered'
   riderId?: string
   $createdAt: string
+}
+
+export type DisputeStatus = 'open' | 'in_review' | 'resolved' | 'closed'
+
+export type Dispute = {
+  $id: string
+  ticketId: string
+  userId: string
+  userName: string
+  userRole: 'customer' | 'business' | 'rider'
+  orderId: string
+  category: string
+  subject: string
+  description: string
+  status: DisputeStatus
+  $createdAt: string
+  $updatedAt: string
+}
+
+export function getDisputeStatusColor(status: DisputeStatus): 'default' | 'success' | 'warning' | 'danger' | 'info' {
+  switch (status) {
+    case 'open': return 'warning'
+    case 'in_review': return 'info'
+    case 'resolved': return 'success'
+    case 'closed': return 'default'
+    default: return 'default'
+  }
 }
 
 export function formatPrice(amount: number): string {

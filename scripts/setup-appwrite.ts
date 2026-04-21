@@ -24,11 +24,16 @@ async function sleep(ms: number) {
 async function run() {
   // ── Create database ──
   try {
-    await db.create(DB, 'Idado Eats')
-    console.log('✓ Database created')
-  } catch (e: any) {
-    if (e.code === 409) console.log('• Database already exists')
-    else throw e
+    await db.get(DB)
+    console.log('• Database already exists')
+  } catch {
+    try {
+      await db.create(DB, 'Idado Eats')
+      console.log('✓ Database created')
+    } catch (e: any) {
+      if (e.code === 409) console.log('• Database already exists')
+      else throw e
+    }
   }
 
   // ── Profiles ──
@@ -45,8 +50,8 @@ async function run() {
   }
   await sleep(1000)
 
-  const profileAttrs: [string, string, number?, boolean?, any?][] = [
-    ['string', 'role', 20, true],
+  const profileAttrs: [string, string, any, boolean?][] = [
+    ['string', 'role', 50, true],
     ['string', 'fullName', 100, true],
     ['string', 'email', 320, true],
     ['string', 'phone', 20, true],
@@ -55,10 +60,14 @@ async function run() {
     ['string', 'businessType', 20, false],
     ['string', 'description', 1000, false],
     ['string', 'vehicleType', 50, false],
+    ['boolean', 'isAvailable', null, false],  // rider online toggle
+    ['string', 'bankName', 100, false],
+    ['string', 'bankAccount', 20, false],
   ]
   for (const [type, key, size, required] of profileAttrs) {
     try {
-      if (type === 'string') await db.createStringAttribute(DB, 'profiles', key, size!, required ?? false)
+      if (type === 'string') await db.createStringAttribute(DB, 'profiles', key, size, required ?? false)
+      else if (type === 'boolean') await db.createBooleanAttribute(DB, 'profiles', key, required ?? false)
       console.log(`  ✓ profiles.${key}`)
     } catch (e: any) {
       if (e.code === 409) console.log(`  • profiles.${key} exists`)
@@ -89,7 +98,13 @@ async function run() {
     ['float', 'rating', null, false],
     ['string', 'deliveryTime', 30, false],
     ['boolean', 'isOpen', null, false],
+    ['string', 'openTime', 10, false],       // e.g. "08:00"
+    ['string', 'closeTime', 10, false],      // e.g. "21:00"
+    ['boolean', 'autoSchedule', null, false], // auto open/close
     ['string', 'ownerId', 36, true],
+    ['string', 'address', 255, false],
+    ['float', 'latitude', null, false],
+    ['float', 'longitude', null, false],
   ]
   for (const [type, key, size, required] of storeAttrs) {
     try {
@@ -160,6 +175,7 @@ async function run() {
     ['string', 'storeName', 100, true],
     ['string', 'items', 5000, true],       // JSON stringified
     ['integer', 'total', null, true],
+    ['integer', 'deliveryFee', null, false],
     ['string', 'status', 20, true],
     ['string', 'paymentMethod', 20, true],
     ['string', 'riderName', 100, false],
@@ -216,6 +232,42 @@ async function run() {
     await sleep(500)
   }
 
+  // ── Disputes ──
+  try {
+    await db.createCollection(DB, 'disputes', 'Disputes', [
+      Permission.read(Role.users()),
+      Permission.create(Role.users()),
+      Permission.update(Role.users()),
+    ])
+    console.log('✓ disputes collection created')
+  } catch (e: any) {
+    if (e.code === 409) console.log('• disputes already exists')
+    else throw e
+  }
+  await sleep(1000)
+
+  const disputeAttrs: [string, string, any, boolean?][] = [
+    ['string', 'ticketId', 20, true],
+    ['string', 'userId', 36, true],
+    ['string', 'userName', 100, true],
+    ['string', 'userRole', 20, true],
+    ['string', 'orderId', 36, false],
+    ['string', 'category', 50, true],
+    ['string', 'subject', 200, true],
+    ['string', 'description', 2000, true],
+    ['string', 'status', 20, true],
+  ]
+  for (const [type, key, size, required] of disputeAttrs) {
+    try {
+      if (type === 'string') await db.createStringAttribute(DB, 'disputes', key, size, required ?? false)
+      console.log(`  ✓ disputes.${key}`)
+    } catch (e: any) {
+      if (e.code === 409) console.log(`  • disputes.${key} exists`)
+      else console.error(`  ✗ disputes.${key}:`, e.message)
+    }
+    await sleep(500)
+  }
+
   // ── Indexes ──
   console.log('\nCreating indexes...')
   const indexes: [string, string, DatabasesIndexType, string[]][] = [
@@ -228,6 +280,9 @@ async function run() {
     ['orders', 'idx_status', DatabasesIndexType.Key, ['status']],
     ['deliveries', 'idx_status', DatabasesIndexType.Key, ['status']],
     ['deliveries', 'idx_rider', DatabasesIndexType.Key, ['riderId']],
+    ['disputes', 'idx_user', DatabasesIndexType.Key, ['userId']],
+    ['disputes', 'idx_status', DatabasesIndexType.Key, ['status']],
+    ['disputes', 'idx_ticket', DatabasesIndexType.Key, ['ticketId']],
   ]
   for (const [col, name, type, attrs] of indexes) {
     try {

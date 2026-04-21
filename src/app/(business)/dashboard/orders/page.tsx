@@ -7,23 +7,25 @@ import { Badge } from '@/_components/ui/badge'
 import { Button } from '@/_components/ui/button'
 import { Card } from '@/_components/ui/card'
 import { getUser, getProfile } from '@/_lib/auth'
-import { listOrdersByStore, updateOrderStatus } from '@/_lib/db'
+import { listOrdersByStore, updateOrderStatus, listStoresByOwner, createDelivery } from '@/_lib/db'
 
-type Tab = 'all' | 'pending' | 'preparing' | 'delivered'
+type Tab = 'all' | 'pending' | 'confirmed' | 'preparing' | 'picked_up' | 'delivered'
 
 export default function BusinessOrdersPage() {
   const [tab, setTab] = useState<Tab>('all')
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
+  const [storeData, setStoreData] = useState<{ name: string; address: string }>({ name: '', address: '' })
 
   useEffect(() => {
     (async () => {
       const user = await getUser()
       if (!user) { setLoading(false); return }
-      const profile = await getProfile(user.$id)
-      const storeId = profile?.storeId as string || ''
-      if (storeId) {
-        const o = await listOrdersByStore(storeId)
+      const stores = await listStoresByOwner(user.$id)
+      if (stores.length > 0) {
+        const store = stores[0]
+        setStoreData({ name: store.name, address: store.address || '' })
+        const o = await listOrdersByStore(store.$id)
         setOrders(o)
       }
       setLoading(false)
@@ -33,6 +35,31 @@ export default function BusinessOrdersPage() {
   async function handleStatusUpdate(orderId: string, newStatus: string) {
     await updateOrderStatus(orderId, newStatus)
     setOrders((prev) => prev.map((o) => o.$id === orderId ? { ...o, status: newStatus as Order['status'] } : o))
+
+    // When marked ready for pickup, create a delivery for riders
+    if (newStatus === 'picked_up') {
+      const order = orders.find((o) => o.$id === orderId)
+      if (order) {
+        try {
+          const customerProfile = await getProfile(order.userId)
+          const items = parseOrderItems(order.items)
+          await createDelivery({
+            orderId: order.$id,
+            storeName: storeData.name || order.storeName,
+            storeAddress: storeData.address || 'Idado Estate',
+            customerName: (customerProfile?.fullName as string) || 'Customer',
+            customerAddress: (customerProfile?.address as string) || 'Idado Estate',
+            customerPhone: (customerProfile?.phone as string) || '',
+            items: items.reduce((sum, i) => sum + i.quantity, 0),
+            total: order.total,
+            fee: (order as any).deliveryFee || 500,
+            status: 'available',
+          })
+        } catch {
+          // delivery creation failed — order status already updated
+        }
+      }
+    }
   }
 
   const filtered = tab === 'all' ? orders : orders.filter((o) => o.status === tab)
@@ -47,13 +74,13 @@ export default function BusinessOrdersPage() {
       <p className="mt-1 text-sm text-muted-foreground">Manage incoming orders</p>
 
       <div className="mt-6 flex gap-2 overflow-x-auto">
-        {(['all', 'pending', 'preparing', 'delivered'] as const).map((t) => (
+        {(['all', 'pending', 'confirmed', 'preparing', 'picked_up', 'delivered'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}
           >
-            {t === 'all' ? 'All Orders' : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'all' ? 'All Orders' : t === 'picked_up' ? 'Ready' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>

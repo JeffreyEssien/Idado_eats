@@ -4,11 +4,15 @@ import { useState, useEffect } from 'react'
 import { Badge } from '@/_components/ui/badge'
 import { formatPrice, getStatusColor, parseOrderItems } from '@/_lib/mock-data'
 import type { Order, Store } from '@/_lib/mock-data'
+import { Toggle } from '@/_components/ui/toggle'
 import { getUser, getProfile } from '@/_lib/auth'
-import { listOrdersByStore, listProducts } from '@/_lib/db'
+import { listOrdersByStore, listProducts, listStoresByOwner, toggleStoreOpen } from '@/_lib/db'
 
 export default function BusinessDashboardPage() {
   const [storeName, setStoreName] = useState('')
+  const [storeId, setStoreId] = useState('')
+  const [isOpen, setIsOpen] = useState(false)
+  const [togglingOpen, setTogglingOpen] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
   const [menuCount, setMenuCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -21,11 +25,15 @@ export default function BusinessDashboardPage() {
       if (!profile) { setLoading(false); return }
       setStoreName(profile.businessName as string || 'Your Store')
 
-      // For now, list orders by the first storeId in profile
-      // TODO: store the storeId in profile after store creation
-      const storeId = profile.storeId as string || ''
-      if (storeId) {
-        const [o, p] = await Promise.all([listOrdersByStore(storeId), listProducts(storeId)])
+      // Try to find the store by owner
+      const stores = await listStoresByOwner(user.$id)
+      const store = stores[0]
+      const sid = store?.$id || (profile.storeId as string) || ''
+      setStoreId(sid)
+      if (store) setIsOpen(store.isOpen ?? false)
+
+      if (sid) {
+        const [o, p] = await Promise.all([listOrdersByStore(sid), listProducts(sid)])
         setOrders(o)
         setMenuCount(p.length)
       }
@@ -52,10 +60,34 @@ export default function BusinessDashboardPage() {
     return <div className="flex min-h-[60vh] items-center justify-center"><p className="text-muted-foreground animate-pulse">Loading...</p></div>
   }
 
+  async function handleToggleOpen(val: boolean) {
+    if (!storeId) return
+    setTogglingOpen(true)
+    try {
+      await toggleStoreOpen(storeId, val)
+      setIsOpen(val)
+    } finally {
+      setTogglingOpen(false)
+    }
+  }
+
   return (
     <div>
-      <h1 className="text-2xl font-extrabold tracking-tight">Dashboard</h1>
-      <p className="text-sm text-muted-foreground mt-1">{storeName}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">{storeName}</p>
+        </div>
+        {storeId && (
+          <div className={`flex items-center gap-3 rounded-full border px-4 py-2 ${isOpen ? 'border-success/30 bg-success/5' : 'border-border bg-card'}`}>
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full ${isOpen ? 'bg-success animate-pulse' : 'bg-muted-foreground/40'}`} />
+              <span className="text-sm font-semibold">{isOpen ? 'Open' : 'Closed'}</span>
+            </div>
+            <Toggle checked={isOpen} onChange={handleToggleOpen} disabled={togglingOpen} />
+          </div>
+        )}
+      </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((s) => (

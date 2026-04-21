@@ -5,7 +5,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/_components/ui/button'
 import { Input } from '@/_components/ui/input'
-import { signIn, getUser, getProfile } from '@/_lib/auth'
+import { signIn, getUser, getProfile, updateProfile, parseRoles, type UserRole } from '@/_lib/auth'
+
+const roleConfig: Record<UserRole, { label: string; icon: string; href: string }> = {
+  customer: { label: 'Customer', icon: '🛍️', href: '/stores' },
+  business: { label: 'Business', icon: '🏪', href: '/dashboard' },
+  rider: { label: 'Rider', icon: '🚴', href: '/deliveries' },
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -13,6 +19,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [roles, setRoles] = useState<UserRole[]>([])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -23,10 +30,23 @@ export default function LoginPage() {
       const user = await getUser()
       if (!user) throw new Error('Login failed')
       const profile = await getProfile(user.$id)
-      const role = profile?.role as string | undefined
-      if (role === 'business') router.push('/dashboard')
-      else if (role === 'rider') router.push('/deliveries')
-      else router.push('/stores')
+      let userRoles = parseRoles(profile?.role as string)
+
+      // Auto-add customer role if missing
+      if (profile && !userRoles.includes('customer')) {
+        const updated = [...userRoles, 'customer'].join(',')
+        try { await updateProfile(user.$id, { role: updated }) } catch {}
+        userRoles = [...userRoles, 'customer']
+      }
+
+      if (userRoles.length > 1) {
+        setRoles(userRoles)
+        setLoading(false)
+        return
+      }
+
+      const role = userRoles[0] ?? 'customer'
+      router.push(roleConfig[role].href)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Invalid email or password'
       setError(msg)
@@ -35,6 +55,40 @@ export default function LoginPage() {
     }
   }
 
+  function selectRole(role: UserRole) {
+    router.push(roleConfig[role].href)
+  }
+
+  // ── Role picker screen ──
+  if (roles.length > 1) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 py-12">
+        <div className="w-full max-w-sm">
+          <Link href="/" className="text-xl font-extrabold">idado<span className="text-primary">.</span></Link>
+          <h1 className="mt-8 text-2xl font-extrabold tracking-tight">Choose a role</h1>
+          <p className="mt-1 text-sm text-muted-foreground">You have multiple roles on this account</p>
+          <div className="mt-8 flex flex-col gap-3">
+            {roles.map((role) => {
+              const cfg = roleConfig[role]
+              return (
+                <button
+                  key={role}
+                  onClick={() => selectRole(role)}
+                  className="flex items-center gap-4 rounded-2xl border border-border/50 bg-card p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <span className="text-3xl">{cfg.icon}</span>
+                  <span className="font-bold">{cfg.label}</span>
+                  <span className="ml-auto text-muted-foreground/40 text-lg">→</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Login form ──
   return (
     <div className="min-h-screen grid sm:grid-cols-2">
       {/* Left — brand panel */}

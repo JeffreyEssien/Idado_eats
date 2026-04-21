@@ -6,4 +6,5 @@ export const COLLECTIONS = {
   ORDERS: 'orders',
   DELIVERIES: 'deliveries',
   PROFILES: 'profiles',
+  DISPUTES: 'disputes',
 } as const

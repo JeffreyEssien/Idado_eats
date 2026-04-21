@@ -9,7 +9,7 @@ import { Card } from '@/_components/ui/card'
 import { Input } from '@/_components/ui/input'
 import { Textarea } from '@/_components/ui/textarea'
 import { getUser, getProfile } from '@/_lib/auth'
-import { listProducts, createProduct, updateProduct } from '@/_lib/db'
+import { listProducts, createProduct, updateProduct, listStoresByOwner, createStore } from '@/_lib/db'
 
 export default function CataloguePage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -23,8 +23,25 @@ export default function CataloguePage() {
     (async () => {
       const user = await getUser()
       if (!user) { setLoading(false); return }
-      const profile = await getProfile(user.$id)
-      const sid = profile?.storeId as string || ''
+      let stores = await listStoresByOwner(user.$id)
+      // Auto-create store for existing business users who don't have one
+      if (stores.length === 0) {
+        const profile = await getProfile(user.$id)
+        if (profile) {
+          await createStore({
+            name: (profile.businessName as string) || 'My Store',
+            type: ((profile.businessType as string) || 'store') as 'restaurant' | 'store' | 'mart',
+            description: (profile.description as string) || '',
+            image: '',
+            rating: 0,
+            deliveryTime: '15-30 min',
+            isOpen: false,
+            ownerId: user.$id,
+          })
+          stores = await listStoresByOwner(user.$id)
+        }
+      }
+      const sid = stores[0]?.$id || ''
       setStoreId(sid)
       if (sid) {
         const p = await listProducts(sid)
